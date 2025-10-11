@@ -1,0 +1,770 @@
+# 🚀 Coach Setter IA - Dashboard MVP - PRD Production Ready (Version Finale)
+
+## 📋 Vue d'ensemble
+
+**Objectif** : Dashboard multi-tenant fonctionnel en production pour 50 coachs avec 35 KPIs temps réel.
+
+**Stack Technique** :
+- Frontend : React + TypeScript + Tailwind (Vite)
+- Backend : Supabase (Auth + PostgreSQL + Edge Functions)
+- Automation : N8N → Supabase (connexion validée)
+- Déploiement : Coolify sur Hostinger
+
+**Flow de données** :
+```
+ManyChat (Instagram DM) → N8N (IA + qualification) → Supabase → React Dashboard
+```
+
+**Note importante** : Ce projet s'appuie sur un schéma Supabase existant. Les modifications nécessaires sont documentées dans `SUPABASE_MIGRATIONS.sql` (référencé mais non inclus dans ce PRD).
+
+---
+
+## 🎯 Scope MVP
+
+### IN SCOPE
+- Auth Supabase multi-tenant avec RLS strict
+- Dashboard lecture seule avec 35 KPIs calculés
+- Panel admin pour création de coachs
+- Calcul KPIs temps réel (vue matérialisée + cron pg_cron)
+- Seed data réalistes (60+ leads de test)
+- Design responsive moderne
+- Health check endpoint
+- Déploiement production sur Coolify
+
+### OUT OF SCOPE
+- Édition manuelle des leads dans le dashboard
+- CRM drag & drop interactif
+- Notifications push/email/Telegram
+- Export CSV avancé avec filtres
+- Dark mode toggle
+- Onboarding guidé interactif
+- Graphiques interactifs complexes (hover, zoom, drill-down)
+- Filtres date custom avec date picker
+
+---
+
+## 🗂️ Architecture Base de Données
+
+### Tables Principales (Schéma existant)
+
+Le projet utilise les tables suivantes de votre base Supabase :
+
+#### `coachs`
+Table principale des coachs (déjà existante).
+- `id` (uuid, PK)
+- `name` (text) - Nom complet du coach
+- `specialty` (text) - Spécialité (fitness, musculation, yoga, etc.)
+- `email` (text, unique)
+- `created_at` (timestamptz)
+
+#### `leads`
+Profil complet des prospects (déjà existante, sera enrichie).
+- `id` (uuid, PK)
+- `coach_id` (uuid, FK → coachs.id)
+- `user_id_instagram` (text, unique) - ID Instagram principal
+- `contact_id` (text) - ID ManyChat (à ajouter)
+- `first_name`, `last_name` (text)
+- `email` (text)
+- `age` (int)
+- `gender` (text)
+- `job_title` (text) - Métier du prospect
+- `lead_status` (text) - Statut existant
+- `status` (text) - Nouveau statut normalisé (à ajouter)
+- `source` (text) - Origine du lead
+- `total_messages_sent`, `total_messages_received` (int) - À ajouter
+- `time_to_action_minutes` (int) - Temps avant conversion (à ajouter)
+- `deal_value` (numeric) - Valeur du deal si gagné (à ajouter)
+- `created_at`, `updated_at` (timestamptz)
+
+#### `messages`
+Historique complet des conversations (déjà existante, sera enrichie).
+- `id` (uuid, PK)
+- `lead_id` (uuid, FK → leads.id)
+- `coach_id` (uuid, FK → coachs.id)
+- `text` (text)
+- `direction` (text) - 'in' ou 'out'
+- `message_number` (int) - Position dans la séquence (à ajouter)
+- `is_replied` (boolean) - Si réponse reçue (à ajouter)
+- `replied_at` (timestamptz) - Date de réponse (à ajouter)
+- `created_at` (timestamptz)
+
+#### `message_sequences` (NOUVELLE)
+Table pour tracking précis des taux de réponse par message.
+- `id` (uuid, PK)
+- `coach_id` (uuid, FK)
+- `lead_id` (uuid, FK)
+- `msg1_sent_at`, `msg1_replied`, `msg1_replied_at`
+- `msg2_sent_at`, `msg2_replied`, `msg2_replied_at`
+- `msg3_sent_at`, `msg3_replied`, `msg3_replied_at`
+- `msg4_sent_at`, `msg4_replied`, `msg4_replied_at`
+- `call_proposed_at`, `call_booked_at`
+- `created_at`
+
+#### `kpi_daily`
+Agrégation quotidienne des KPIs (déjà existante, sera enrichie).
+- `id` (uuid, PK)
+- `coach_id` (uuid, FK)
+- `date` (date)
+- Colonnes existantes : `total_dms`, `qualified_leads`, `calls_proposed`, `calls_booked`, etc.
+- Colonnes à ajouter : `response_rate_msg1-4`, `leads_won`, `leads_lost`, `total_revenue`, etc.
+
+### Vue Matérialisée Performance
+
+**`coach_dashboard_kpis`** : Vue pré-calculée pour affichage ultra-rapide du dashboard.
+
+Contient par `coach_id` :
+- Compteurs de volume (total_leads, leads_today, leads_week, messages_sent)
+- Répartition pipeline (new_leads, engaged, qualified, calls_proposed, calls_booked, won, lost, relance)
+- Taux de conversion (qualification_rate, call_booking_rate, lost_rate)
+- Moyennes (avg_messages_per_lead, avg_time_to_action)
+- ROI (total_revenue, deals_count)
+- Démographie (male_count, female_count, avg_age)
+- Timestamp de dernière mise à jour
+
+**Refresh** : Automatique toutes les 5 minutes via pg_cron.
+
+### Fonctions SQL Utilitaires
+
+**`get_response_rates(coach_id)`** : Calcule les taux de réponse msg 1-4.
+
+**`get_top_sources(coach_id, limit)`** : Top N sources de leads avec %.
+
+**`get_top_professions(coach_id, limit)`** : Top N métiers avec %.
+
+**`get_leads_to_followup(coach_id)`** : Liste leads à relancer avec priorité (high/medium/low).
+
+### Row Level Security (RLS)
+
+Toutes les tables principales ont RLS activé avec politique :
+```sql
+CREATE POLICY "coaches_own_data" ON [table]
+  FOR ALL USING (coach_id = auth.uid());
+```
+
+Garantit isolation totale des données entre coachs.
+
+---
+
+## 🔧 Backend - Supabase Edge Functions
+
+### Edge Function : `create-coach`
+
+**Endpoint** : `POST /functions/v1/create-coach`
+
+**Payload** :
+```json
+{
+  "email": "nouveau@coach.fr",
+  "name": "Nouveau Coach",
+  "specialty": "fitness"
+}
+```
+
+**Fonctionnement** :
+1. Crée user dans `auth.users` (Supabase Auth)
+2. Génère mot de passe aléatoire
+3. Insert automatique dans table `coachs` (via ID auth)
+4. Génère magic link pour reset password
+5. Retourne `coach_id` et `magic_link`
+
+**Sécurité** : Requiert `SERVICE_ROLE_KEY` (admin only).
+
+**Variables d'environnement** :
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `APP_URL` (pour redirect après reset password)
+
+---
+
+## 💻 Frontend - Architecture React
+
+### Structure Projet
+
+```
+src/
+├── lib/
+│   └── supabase.ts           # Client Supabase
+├── hooks/
+│   ├── useAuth.ts            # Gestion auth & session
+│   ├── useDashboardKPIs.ts   # Hook KPIs principaux
+│   ├── useResponseRates.ts   # Hook taux réponse
+│   ├── useTopSources.ts      # Hook top sources
+│   ├── useTopProfessions.ts  # Hook top métiers
+│   ├── useLeadsToFollowup.ts # Hook leads à relancer
+│   └── useCoach.ts           # Hook info coach
+├── components/
+│   ├── ui/
+│   │   ├── KPICard.tsx       # Carte KPI avec icône
+│   │   ├── ProgressBar.tsx   # Barre progression
+│   │   ├── Badge.tsx         # Label coloré statut
+│   │   └── StatRow.tsx       # Ligne statistique
+│   ├── dashboard/
+│   │   ├── ActivitySection.tsx      # Section 1 : Activité
+│   │   ├── ResponseRatesSection.tsx # Section 2 : Taux réponse
+│   │   ├── ConversionSection.tsx    # Section 3 : Conversion
+│   │   ├── DemographySection.tsx    # Section 4 : Démographie
+│   │   ├── PipelineSection.tsx      # Section 5 : Pipeline
+│   │   └── PerformanceSection.tsx   # Section 6 : Performance
+│   └── DashboardLayout.tsx   # Layout avec sidebar
+├── pages/
+│   ├── Login.tsx             # Page connexion
+│   ├── Dashboard.tsx         # Page dashboard coach
+│   ├── Admin.tsx             # Page admin création coach
+│   └── Health.tsx            # Health check endpoint
+└── App.tsx                   # Router principal
+```
+
+### Routes
+
+```
+/ → Redirect vers /login ou /dashboard selon auth
+/login → Page connexion
+/dashboard → Dashboard coach (protected)
+/admin → Panel admin (protected, admin only)
+/health → Health check (public)
+```
+
+### Custom Hooks Principaux
+
+#### `useAuth()`
+Gère authentification et session.
+
+**Retour** :
+- `user` : Objet user Supabase ou null
+- `loading` : Boolean état chargement
+- `signIn(email, password)` : Fonction login
+- `signOut()` : Fonction logout
+
+#### `useDashboardKPIs(coachId)`
+Fetch KPIs depuis vue matérialisée.
+
+**Retour** :
+- `kpis` : Objet avec tous les KPIs ou null
+- `loading` : Boolean
+
+**Données** :
+```typescript
+{
+  total_leads: number
+  leads_today: number
+  leads_week: number
+  total_messages_sent: number
+  new_leads: number
+  engaged_leads: number
+  qualified_leads: number
+  calls_proposed: number
+  calls_booked: number
+  leads_won: number
+  leads_lost: number
+  leads_relance: number
+  qualification_rate: number
+  call_booking_rate: number
+  lost_rate: number
+  avg_messages_per_lead: number
+  avg_time_to_action_minutes: number
+  total_revenue: number
+  male_count: number
+  female_count: number
+  avg_age: number
+  last_updated: string
+}
+```
+
+#### `useResponseRates(coachId)`
+Appelle fonction SQL `get_response_rates`.
+
+**Retour** :
+```typescript
+{
+  rates: {
+    msg1_rate: number
+    msg2_rate: number
+    msg3_rate: number
+    msg4_rate: number
+  }
+}
+```
+
+#### `useTopSources(coachId, limit)`
+Appelle fonction SQL `get_top_sources`.
+
+**Retour** :
+```typescript
+{
+  sources: Array<{
+    source_name: string
+    lead_count: number
+    percentage: number
+  }>
+}
+```
+
+### Composants UI Réutilisables
+
+#### `<KPICard />`
+Props :
+- `title` : Titre du KPI
+- `value` : Valeur principale
+- `change?` : Pourcentage évolution
+- `icon` : Composant Lucide icon
+- `suffix?` : Suffixe (€, %, etc.)
+
+#### `<ProgressBar />`
+Props :
+- `value` : Valeur 0-100
+- `label?` : Label optionnel
+- `color?` : Couleur (blue/green/yellow/red)
+
+#### `<Badge />`
+Props :
+- `children` : Contenu
+- `variant?` : Couleur (blue/green/yellow/red/purple)
+
+#### `<StatRow />`
+Props :
+- `label` : Label gauche
+- `value` : Valeur droite
+
+---
+
+## 📊 Dashboard - Sections KPIs
+
+### Section 1 : Activité & Volume
+
+**KPIs affichés** :
+- Messages envoyés (total)
+- Nombre de leads (total)
+- Leads aujourd'hui
+- Messages moyens par lead
+
+**Graphiques** :
+- Top 3 sources de leads (table avec %)
+- Temps de discussion moyen (gros chiffre centré)
+
+### Section 2 : Taux de Réponse
+
+**KPIs affichés** (4 cartes) :
+- Taux réponse 1er message (avec barre progression)
+- Taux réponse 2ème message
+- Taux réponse 3ème message
+- Taux réponse 4ème message
+
+**Badges statut** :
+- 60%+ : "Excellent" (vert)
+- 40-59% : "Bon" (jaune)
+- <40% : "À améliorer" (rouge)
+
+### Section 3 : Qualification & Conversion
+
+**KPIs affichés** :
+- Prospects qualifiés (count + taux %)
+- Lead magnets envoyés (estimation 75% des qualifiés)
+- Emails capturés (estimation 60% des qualifiés)
+
+**Funnel** (4 étapes) :
+1. Messages envoyés
+2. Qualifiés (%)
+3. Calls proposés (%)
+4. Calls réservés (%)
+
+**Conversion calls** :
+- Taux de conversion call (%)
+- No-show estimé (17% moyenne)
+
+### Section 4 : Démographie
+
+**KPIs affichés** :
+- Répartition genre (3 mini-cartes : Hommes %, Femmes %, Autre %)
+- Âge moyen
+- Top 5 professions (table avec %)
+
+### Section 5 : Pipeline & Relances
+
+**KPIs affichés** (4 cartes) :
+- Leads nouveaux
+- Leads gagnés
+- Leads perdus (avec taux %)
+- Leads à relancer (avec taux %)
+
+**Liste leads à relancer** :
+- Username Instagram
+- Jours sans contact
+- Badge priorité (haute/moyenne/basse)
+- Statut actuel
+
+**Raisons de perte** (top 5) :
+- Prix trop élevé
+- Manque de temps
+- Déjà essayé
+- Hésitation
+- Autre
+
+### Section 6 : Performance & ROI
+
+**KPIs affichés** :
+- ROI % (gros chiffre centré avec gradient)
+- Revenus générés
+- Coût acquisition (estimé ou fixe pour MVP)
+- Efficacité IA (94% par défaut pour MVP)
+- Temps gagné vs humain (estimé : 47h/mois)
+
+**Indicateurs additionnels** :
+- Meilleur moment conversion (jour + heure)
+- Nombre de deals fermés
+
+---
+
+## 🎨 Design System
+
+### Palette Couleurs
+
+```css
+:root {
+  --bg-dark: #0f172a;
+  --bg-purple: #312e81;
+  --bg-card: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.2);
+  
+  --primary: #3b82f6;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --purple: #8b5cf6;
+  
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.6);
+}
+```
+
+### Composants Tailwind Standards
+
+**Card glassmorphism** :
+```tsx
+className="bg-white/10 backdrop-blur-xl rounded-xl p-6 border border-white/20"
+```
+
+**Button gradient** :
+```tsx
+className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg px-4 py-2 hover:shadow-lg transition-all"
+```
+
+**Badge** :
+```tsx
+className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400"
+```
+
+**Input** :
+```tsx
+className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+```
+
+### Typography
+
+- **Headings** : Font-family system + font-weight 600-700
+- **Body** : Font-family system + font-weight 400
+- **Metrics** : Font-weight 700 + text-3xl à 5xl
+
+---
+
+## 🌱 Seed Data
+
+### Script Python
+
+**Fichier** : `seed_data.py`
+
+**Fonctionnement** :
+1. Récupère tous les `coach_id` depuis table `coachs`
+2. Génère 60 leads réalistes avec :
+   - Données démographiques (genre, âge, métier)
+   - Statuts variés (new, engaged, qualified, won, lost, etc.)
+   - Sources variées (story, post, keyword, dm_organique)
+   - Messages envoyés/reçus
+   - Dates créations étalées sur 30 jours
+   - Deal values pour leads "won"
+3. Insert bulk dans table `leads`
+4. Génère messages associés dans table `messages`
+5. Génère sequences dans `message_sequences`
+
+**Prérequis** :
+- Python 3.8+
+- Library : `supabase-py`, `python-dotenv`
+- Variables env : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+
+**Exécution** :
+```bash
+pip install supabase python-dotenv
+python seed_data.py
+```
+
+**Résultat attendu** :
+- 60+ leads créés
+- 100+ messages créés
+- 30+ sequences créées
+- Répartition réaliste par coach
+
+---
+
+## 🚀 Déploiement Coolify
+
+### Configuration Projet
+
+**Build settings** :
+- Build command : `npm run build`
+- Output directory : `dist`
+- Install command : `npm install`
+
+**Environment Variables** (à configurer dans Coolify) :
+- `VITE_SUPABASE_URL` : URL projet Supabase
+- `VITE_SUPABASE_ANON_KEY` : Clé publique Supabase
+
+**Port** : 3000 (ou auto-detect)
+
+**Health check** : `GET /health` doit retourner status 200
+
+### Process de Déploiement
+
+1. Push code sur repository Git (GitHub/GitLab)
+2. Créer nouveau projet dans Coolify
+3. Connecter repository
+4. Configurer variables d'environnement
+5. Lancer build
+6. Coolify auto-deploy sur commit main
+
+**Domaine** :
+- Option 1 : Sous-domaine Coolify (ex: `app-xxx.coolify.io`)
+- Option 2 : Domaine custom (ex: `dashboard.votredomaine.com`)
+- HTTPS : Automatique via Let's Encrypt
+
+### Dockerfile (optionnel)
+
+Si besoin de contrôle avancé :
+
+```dockerfile
+FROM node:18-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+---
+
+## ✅ Checklist Pré-Démarrage
+
+### Infrastructure
+- [ ] Projet Supabase créé et accessible
+- [ ] Service Role Key récupérée (admin)
+- [ ] Anon Key récupérée (public)
+- [ ] N8N connecté à Supabase (node testé)
+- [ ] VPS Hostinger + Coolify actifs
+- [ ] Repository Git initialisé
+
+### Database (Référence : `SUPABASE_MIGRATIONS.sql`)
+- [ ] Script migrations SQL exécuté
+- [ ] Colonnes ajoutées aux tables existantes
+- [ ] Table `message_sequences` créée
+- [ ] Indexes créés
+- [ ] RLS activé sur toutes tables
+- [ ] Policies RLS créées
+- [ ] Triggers auto-update créés
+- [ ] Vue matérialisée `coach_dashboard_kpis` créée
+- [ ] Extension pg_cron activée
+- [ ] Cron job refresh KPIs configuré
+- [ ] Fonctions SQL créées (response_rates, top_sources, etc.)
+
+### Seed Data
+- [ ] Au moins 3 coachs existants dans table `coachs`
+- [ ] Script `seed_data.py` prêt
+- [ ] Variables env Python configurées
+- [ ] Seed exécuté avec succès (60+ leads)
+- [ ] Vérification données dans Supabase Table Editor
+
+### Backend
+- [ ] Edge Function `create-coach` déployée
+- [ ] Variables env Edge Function configurées
+- [ ] Test création coach via curl/Postman
+
+### Frontend
+- [ ] Projet Vite React TypeScript initialisé
+- [ ] Dépendances installées (`@supabase/supabase-js`, `recharts`, `lucide-react`, etc.)
+- [ ] Tailwind CSS configuré
+- [ ] Client Supabase configuré (`src/lib/supabase.ts`)
+- [ ] Variables env `.env` créées
+- [ ] Structure folders créée (hooks, components, pages)
+
+### Tests Critiques
+- [ ] Login coach fonctionne (redirect dashboard)
+- [ ] RLS testé : coach A ne voit pas données coach B
+- [ ] Dashboard affiche KPIs (non vides)
+- [ ] Vue matérialisée se refresh (vérifier `last_updated`)
+- [ ] Admin peut créer nouveau coach
+- [ ] Magic link reçu fonctionnel
+- [ ] Responsive mobile OK
+- [ ] Aucune erreur console
+
+### Deploy
+- [ ] Build local réussi (`npm run build`)
+- [ ] Preview local OK (`npm run preview`)
+- [ ] Coolify projet configuré
+- [ ] Variables env production configurées
+- [ ] Deploy réussi
+- [ ] HTTPS actif
+- [ ] Health check répond OK
+- [ ] Dashboard accessible publiquement
+
+---
+
+## 📊 Success Metrics
+
+### Fonctionnel (Go/No-Go)
+- 3 coachs minimum peuvent se login avec comptes différents
+- Chaque coach voit UNIQUEMENT ses données (RLS validé)
+- Dashboard affiche 35 KPIs sans erreurs
+- Admin peut créer un nouveau coach
+- App accessible via HTTPS sur domaine
+
+### Technique
+- Dashboard load time < 2 secondes
+- Vue matérialisée refresh toutes les 5 min (vérifiable via `last_updated`)
+- Aucune erreur JavaScript console
+- Build production < 500KB gzipped
+- Responsive : mobile, tablet, desktop
+
+### UX
+- Design moderne et professionnel
+- Loading states sur tous les fetches
+- Empty states si pas de données
+- Transitions fluides entre pages
+- Toast notifications (erreurs)
+
+---
+
+## 🚨 Risques & Mitigations
+
+| Risque | Impact | Probabilité | Mitigation |
+|--------|--------|-------------|------------|
+| RLS mal configuré (coach voit données autres) | CRITIQUE | Moyenne | Tester RLS dès migration SQL. Script test automatique. |
+| Vue matérialisée pas refresh auto | Élevé | Faible | Vérifier cron job pg_cron. Fallback : refresh manuel. |
+| Dashboard lent (>5s) | Élevé | Moyenne | Vue matérialisée + indexes. Cache navigateur. |
+| N8N n'insère plus dans Supabase | CRITIQUE | Faible | Monitoring N8N. Webhook fallback. Dead letter queue. |
+| Deploy Coolify échoue | Élevé | Faible | Tester build local. Dockerfile backup. Plan B : Vercel. |
+| Seed data invalide | Moyen | Moyenne | Validation script Python. Rollback SQL si erreur. |
+
+---
+
+## 📦 Livrables Finaux
+
+### Code Source
+- [ ] Repository Git complet avec historique
+- [ ] README.md avec instructions setup
+- [ ] `.env.example` avec toutes variables
+- [ ] `package.json` avec toutes dépendances
+- [ ] Structure folders documentée
+
+### Database
+- [ ] `SUPABASE_MIGRATIONS.sql` (script migrations)
+- [ ] `seed_data.py` (script seed)
+- [ ] Documentation schema (tables, colonnes, relations)
+- [ ] Export policies RLS
+
+### Backend
+- [ ] Edge Function `create-coach` (code + doc)
+- [ ] Variables d'environnement documentées
+
+### Documentation
+- [ ] Guide admin (créer coach, gérer utilisateurs)
+- [ ] Guide coach (login, navigation dashboard)
+- [ ] Architecture diagram (flow données)
+- [ ] Troubleshooting guide
+
+### Deploy
+- [ ] App live sur HTTPS
+- [ ] Accès admin (credentials)
+- [ ] Logs accessibles (Coolify)
+- [ ] Backup database configuré (Supabase auto)
+
+---
+
+## 🎯 Post-MVP (Roadmap)
+
+### Quick Wins (Semaine 2-3)
+- Export CSV des KPIs avec filtres date
+- Filtres date dashboard (7j/30j/90j/custom)
+- Dark mode toggle
+- Notifications email digest quotidien
+- Graphiques interactifs (hover tooltips)
+
+### Features Medium (Mois 2)
+- CRM basique : édition statut lead manuel
+- Notes sur leads
+- Tags personnalisés
+- Recherche leads par nom/Instagram
+- Historique complet conversation lead
+
+### Optimisations Performance
+- Cache Redis pour KPIs (si >100 coachs)
+- Infinite scroll liste leads
+- WebSocket realtime updates (Supabase Realtime)
+- PWA avec offline support
+- Lazy loading images/components
+
+### Intégrations (Mois 3)
+- Webhook ManyChat auto-sync leads temps réel
+- Calendly webhook auto-update calls booked
+- Stripe integration tracking revenus réels
+- Telegram bot alertes leads chauds
+- Zapier/Make.com connectors
+
+---
+
+## 📚 Références Techniques
+
+### Documentation Externe
+- Supabase Docs : https://supabase.com/docs
+- React Router v6 : https://reactrouter.com
+- Tailwind CSS : https://tailwindcss.com
+- Recharts : https://recharts.org
+- Lucide Icons : https://lucide.dev
+- Coolify : https://coolify.io/docs
+
+### Scripts & Fichiers Référencés
+- `SUPABASE_MIGRATIONS.sql` : Script SQL complet migrations
+- `seed_data.py` : Script Python génération données test
+- `.env.example` : Template variables d'environnement
+- `README.md` : Instructions setup projet
+
+---
+
+## 📝 Notes Importantes
+
+### Mapping Schéma
+Le projet utilise votre schéma Supabase existant avec ces mappings :
+- `coachs.name` = nom complet coach (au lieu de `full_name`)
+- `leads.user_id_instagram` = identifiant principal Instagram
+- `leads.job_title` = métier (utilisé pour top professions)
+- `leads.status` = nouveau champ normalisé (new/engaged/qualified/won/lost/relance)
+
+### Authentification
+Pas de lien automatique entre `auth.users` et `coachs.id`. Pour MVP, création manuelle ou via Edge Function admin.
+
+### N8N Integration
+Le webhook N8N doit inclure `coach_id` en query param :
+```
+https://votre-n8n.com/webhook/setter?coach_id=uuid-du-coach
+```
+
+### Performance
+Vue matérialisée refresh 5 min = 12 fois/heure. Acceptable pour MVP. Si besoin temps réel strict : remplacer par vue normale + cache.
+
+---
+
+**FIN DU PRD**
+
+**Prochaine étape** : Exécuter `SUPABASE_MIGRATIONS.sql` puis démarrer développement frontend.
