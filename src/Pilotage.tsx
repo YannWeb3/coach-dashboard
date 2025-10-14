@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { 
   TrendingUp, Users, MessageSquare, Target, Phone, DollarSign,
-  UserCheck, Mail, Award, BarChart3, TrendingDown
+  Award, BarChart3
 } from 'lucide-react';
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 
 export default function Pilotage() {
