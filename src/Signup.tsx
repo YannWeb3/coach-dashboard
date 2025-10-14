@@ -39,9 +39,9 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
       if (authError) throw authError
 
       if (authData.user) {
-        // 2. Créer le coach dans la table coachs
+        // 2. Créer le coach dans la table coach_profiles
         const { error: coachError } = await supabase
-          .from('coachs')
+          .from('coach_profiles')
           .insert({
             id: authData.user.id,
             name: name,

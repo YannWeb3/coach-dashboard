@@ -100,7 +100,7 @@ Puis modifier le code dans `App.tsx` :
 ```typescript
 const checkIfAdmin = async (userId: string) => {
   const { data } = await supabase
-    .from('coachs')
+    .from('coach_profiles')
     .select('is_admin')
     .eq('id', userId)
     .single()

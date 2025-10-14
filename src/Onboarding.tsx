@@ -68,9 +68,9 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
   }, [userId])
 
   const loadCoachInfo = async () => {
-    // Charger depuis la table coachs
+    // Charger depuis la table coach_profile
     const { data: coachData } = await supabase
-      .from('coachs')
+      .from('coach_profiles')
       .select('name, email, specialty')
       .eq('id', userId)
       .single()
