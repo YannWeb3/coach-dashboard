@@ -102,7 +102,7 @@ export default function App() {
       const { data: configData } = await supabase
         .from('config_coach')
         .select('statut')
-        .eq('id', coachId)
+        .eq('coach_id', coachId)
         .single()
       
       // Si pas de config ou statut != "Configuration terminée"
