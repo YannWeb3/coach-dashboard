@@ -40,17 +40,57 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
 
       if (authData.user) {
         // 2. Créer le coach dans la table coach_profiles
-        const { error: coachError } = await supabase
+        const { data: coachProfile, error: coachError } = await supabase
           .from('coach_profiles')
           .insert({
             id: authData.user.id,
             name: name,
             email: email,
             specialty: specialty,
+            user_id: authData.user.id,
             created_at: new Date().toISOString()
           })
+          .select()
+          .single()
 
-        if (coachError) throw coachError
+        if (coachError) {
+          console.error('❌ Erreur création coach_profiles:', coachError)
+          throw coachError
+        }
+
+        // 3. 🆕 CRÉER AUSSI dans config_coach avec le MÊME ID
+        const { error: configError } = await supabase
+          .from('config_coach')
+          .insert({
+            id: authData.user.id, // ⚠️ MÊME ID que coach_profiles
+            nom: name,
+            email: email,
+            niche: specialty, // Initialise avec la spécialité
+            statut: 'En configuration', // Statut initial pour l'onboarding
+            prerequis_manychat: false,
+            prerequis_openrouter: false,
+            offre_existante: false,
+            avatar_genere_ia: false,
+            tests_effectues: 0,
+            style_communication: 'professionnel', // Valeur par défaut
+            mots_cles_cibles: [], // Array vide
+            urgence: 'normal', // Valeur par défaut
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+
+        if (configError) {
+          console.error('❌ Erreur création config_coach:', configError)
+          // ⚠️ Important : on ne throw pas pour ne pas bloquer l'inscription
+          // Mais on affiche un warning dans la console
+          console.warn('⚠️ Le coach a été créé mais config_coach a échoué. L\'onboarding pourrait nécessiter une intervention manuelle.')
+        } else {
+          console.log('✅ Coach créé avec succès dans les 2 tables:', {
+            coach_profiles_id: authData.user.id,
+            config_coach_id: authData.user.id,
+            email: email
+          })
+        }
 
         setSuccess(true)
       }
