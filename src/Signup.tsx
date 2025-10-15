@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
-import { UserPlus, ArrowLeft } from 'lucide-react'
+import { UserPlus, ArrowLeft, Mail, CheckCircle } from 'lucide-react'
 
 export default function Signup({ onBackToLogin }: { onBackToLogin: () => void }) {
   const [name, setName] = useState('')
@@ -16,7 +16,6 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
     setLoading(true)
     setError(null)
 
-    // Validation
     if (password.length < 6) {
       setError('Le mot de passe doit contenir au moins 6 caractères')
       setLoading(false)
@@ -24,7 +23,9 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
     }
 
     try {
-      // 1. Créer l'utilisateur dans Supabase Auth
+      console.log('🚀 Création du compte Auth...')
+      
+      // Créer l'utilisateur dans Supabase Auth avec métadonnées
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -32,36 +33,30 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
           data: {
             name: name,
             specialty: specialty
-          }
+          },
+          // Redirection après confirmation email
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       })
 
-      if (authError) throw authError
-
-      if (authData.user) {
-        // 2. Créer le coach dans coach_profiles
-        // ✅ Le trigger va automatiquement créer config_coach
-        const { error: coachError } = await supabase
-          .from('coach_profiles')
-          .insert({
-            id: authData.user.id,
-            name: name,
-            email: email,
-            specialty: specialty,
-            user_id: authData.user.id,
-            created_at: new Date().toISOString()
-          })
-
-        if (coachError) {
-          console.error('❌ Erreur création coach:', coachError)
-          throw coachError
-        }
-
-        console.log('✅ Coach + Config créés automatiquement via trigger')
-        setSuccess(true)
+      if (authError) {
+        console.error('❌ Erreur Auth:', authError)
+        throw authError
       }
+
+      if (!authData.user) {
+        throw new Error('Erreur lors de la création du compte')
+      }
+
+      console.log('✅ Compte créé, en attente de confirmation email')
+      
+      // ✅ On NE crée PAS le profil coach ici
+      // Il sera créé automatiquement après confirmation via un trigger Auth
+      
+      setSuccess(true)
+
     } catch (err: any) {
-      console.error('Erreur inscription:', err)
+      console.error('❌ Erreur inscription:', err)
       setError(err.message || 'Erreur lors de l\'inscription')
     } finally {
       setLoading(false)
@@ -72,25 +67,65 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-purple-900 flex items-center justify-center p-6">
         <div className="w-full max-w-md">
-          <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 text-center">
-            <div className="bg-green-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-              <UserPlus className="w-8 h-8 text-green-400" />
+          <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20">
+            {/* Header avec icône */}
+            <div className="bg-blue-500/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mail className="w-10 h-10 text-blue-400" />
             </div>
             
-            <h2 className="text-2xl font-bold text-white mb-3">
-              Compte créé avec succès ! 🎉
+            <h2 className="text-3xl font-bold text-white text-center mb-3">
+              Vérifiez votre email 📧
             </h2>
             
-            <p className="text-white/60 mb-6">
-              Vérifiez votre email <strong className="text-white">{email}</strong> pour confirmer votre compte.
+            <p className="text-white/70 text-center mb-8">
+              Un email de confirmation a été envoyé à :
             </p>
 
-            <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4 mb-6">
-              <p className="text-blue-400 text-sm">
-                📧 Un email de confirmation vous a été envoyé. Cliquez sur le lien pour activer votre compte.
+            {/* Email Box */}
+            <div className="bg-white/5 border border-white/20 rounded-xl p-4 mb-8">
+              <p className="text-white font-semibold text-center text-lg">
+                {email}
               </p>
             </div>
 
+            {/* Instructions */}
+            <div className="space-y-4 mb-8">
+              <div className="flex items-start gap-3">
+                <div className="bg-blue-500/20 rounded-full p-1 mt-1">
+                  <CheckCircle className="w-4 h-4 text-blue-400" />
+                </div>
+                <p className="text-white/60 text-sm">
+                  Ouvrez votre boîte email et cliquez sur le lien de confirmation
+                </p>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="bg-blue-500/20 rounded-full p-1 mt-1">
+                  <CheckCircle className="w-4 h-4 text-blue-400" />
+                </div>
+                <p className="text-white/60 text-sm">
+                  Une fois confirmé, vous pourrez vous connecter et accéder à votre dashboard
+                </p>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="bg-blue-500/20 rounded-full p-1 mt-1">
+                  <CheckCircle className="w-4 h-4 text-blue-400" />
+                </div>
+                <p className="text-white/60 text-sm">
+                  Votre profil coach sera créé automatiquement après la confirmation
+                </p>
+              </div>
+            </div>
+
+            {/* Info supplémentaire */}
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
+              <p className="text-yellow-400 text-sm text-center">
+                💡 <strong>Pensez à vérifier vos spams</strong> si vous ne recevez pas l'email dans quelques minutes
+              </p>
+            </div>
+
+            {/* Bouton retour */}
             <button
               onClick={onBackToLogin}
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold py-3 rounded-lg hover:shadow-lg transition-all"
