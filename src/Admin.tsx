@@ -69,7 +69,6 @@ export default function Admin() {
 
       console.log('User ID:', user.id)
 
-      // ✅ FIX : Vérification manuelle sans .maybeSingle()
       const { data: adminData, error } = await supabase
         .from('admin')
         .select('id')
@@ -84,7 +83,6 @@ export default function Admin() {
         return
       }
 
-      // Vérifier si le tableau est vide ou non
       if (!adminData || adminData.length === 0) {
         console.warn('User pas dans la table admin')
         window.location.href = '/dashboard'
@@ -125,7 +123,6 @@ export default function Admin() {
     setLoading(true)
     
     try {
-      // Test simple sans KPIs d'abord
       const { data, error } = await supabase
         .from('coach_profiles')
         .select('*')
@@ -150,7 +147,6 @@ export default function Admin() {
 
       console.log(`✅ ${data.length} coach(s) trouvé(s)`)
       
-      // Ajouter les KPIs après
       const { data: kpisData } = await supabase
         .from('coach_dashboard_kpis')
         .select('coach_id, total_leads, leads_won, total_revenue')
@@ -215,7 +211,7 @@ export default function Admin() {
       if (authError) throw authError
 
       if (authData.user) {
-        // 1. Créer le profil coach
+        // ✅ Créer le profil coach (le trigger crée config_coach automatiquement)
         const { error: coachError } = await supabase
           .from('coach_profiles')
           .insert({
@@ -229,24 +225,8 @@ export default function Admin() {
 
         if (coachError) throw coachError
 
-        // 2. Créer la config coach
-        const { error: configError } = await supabase
-          .from('config_coach')
-          .insert({
-            id: authData.user.id,
-            nom: formData.name,
-            email: formData.email,
-            statut: 'Prérequis manquants',
-            offre_existante: false,
-            tests_effectues: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-
-        if (configError) {
-          console.error('Erreur config (non bloquant):', configError)
-        }
-
+        console.log('✅ Coach + Config créés automatiquement via trigger')
+        
         showMessage('success', `Coach ${formData.name} créé avec succès ! Un email de confirmation a été envoyé.`)
         setShowCreateModal(false)
         resetForm()
@@ -296,43 +276,9 @@ export default function Admin() {
       setLoading(true)
       console.log('🗑️ Suppression coach:', selectedCoach.id)
 
-      // 1. Supprimer les leads associés
-      const { error: leadsError } = await supabase
-        .from('leads')
-        .delete()
-        .eq('coach_id', selectedCoach.id)
-
-      if (leadsError) {
-        console.error('Erreur suppression leads:', leadsError)
-      } else {
-        console.log('✅ Leads supprimés')
-      }
-
-      // 2. Supprimer les messages associés
-      const { error: messagesError } = await supabase
-        .from('messages')
-        .delete()
-        .eq('coach_id', selectedCoach.id)
-
-      if (messagesError) {
-        console.error('Erreur suppression messages:', messagesError)
-      } else {
-        console.log('✅ Messages supprimés')
-      }
-
-      // 3. Supprimer la config_coach
-      const { error: configError } = await supabase
-        .from('config_coach')
-        .delete()
-        .eq('id', selectedCoach.id)
-
-      if (configError) {
-        console.error('Erreur suppression config:', configError)
-      } else {
-        console.log('✅ Config supprimée')
-      }
-
-      // 4. Supprimer le coach_profile
+      // ✅ Grâce à ON DELETE CASCADE, il suffit de supprimer coach_profiles
+      // Les autres tables (config_coach, leads, messages, etc.) seront supprimées automatiquement
+      
       const { error: coachError } = await supabase
         .from('coach_profiles')
         .delete()
@@ -343,11 +289,7 @@ export default function Admin() {
         throw coachError
       }
 
-      console.log('✅ Coach supprimé')
-
-      // 5. Supprimer le user auth (nécessite Service Role Key)
-      // Note: Ceci ne fonctionnera pas avec l'anon key
-      // Il faudrait une Edge Function pour ça
+      console.log('✅ Coach + toutes les données associées supprimés (CASCADE)')
       
       showMessage('success', 'Coach supprimé avec succès !')
       setShowDeleteModal(false)
@@ -447,213 +389,217 @@ export default function Admin() {
         </button>
       </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <StatCard
-            title="Total Coachs"
-            value={globalStats.totalCoaches}
-            icon={<Users className="w-6 h-6" />}
-            color="blue"
-          />
-          <StatCard
-            title="Total Leads"
-            value={globalStats.totalLeads}
-            icon={<TrendingUp className="w-6 h-6" />}
-            color="green"
-          />
-          <StatCard
-            title="Revenus Totaux"
-            value={`${globalStats.totalRevenue.toFixed(0)}€`}
-            icon={<DollarSign className="w-6 h-6" />}
-            color="purple"
-          />
-          <StatCard
-            title="Moy. Leads/Coach"
-            value={globalStats.avgLeadsPerCoach.toFixed(1)}
-            icon={<TrendingUp className="w-6 h-6" />}
-            color="yellow"
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard
+          title="Total Coachs"
+          value={globalStats.totalCoaches}
+          icon={<Users className="w-6 h-6" />}
+          color="blue"
+        />
+        <StatCard
+          title="Total Leads"
+          value={globalStats.totalLeads}
+          icon={<TrendingUp className="w-6 h-6" />}
+          color="green"
+        />
+        <StatCard
+          title="Revenus Totaux"
+          value={`${globalStats.totalRevenue.toFixed(0)}€`}
+          icon={<DollarSign className="w-6 h-6" />}
+          color="purple"
+        />
+        <StatCard
+          title="Moy. Leads/Coach"
+          value={globalStats.avgLeadsPerCoach.toFixed(1)}
+          icon={<TrendingUp className="w-6 h-6" />}
+          color="yellow"
+        />
+      </div>
+
+      {/* Search Bar */}
+      <div className="bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
+          <input
+            type="text"
+            placeholder="Rechercher un coach (nom, email, spécialité)..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+      </div>
 
-        <div className="bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
-            <input
-              type="text"
-              placeholder="Rechercher un coach (nom, email, spécialité)..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        <div className="bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-white/5">
-                <tr>
-                  <th className="px-6 py-4 text-left text-white font-semibold">Coach</th>
-                  <th className="px-6 py-4 text-left text-white font-semibold">Email</th>
-                  <th className="px-6 py-4 text-left text-white font-semibold">Spécialité</th>
-                  <th className="px-6 py-4 text-center text-white font-semibold">Leads</th>
-                  <th className="px-6 py-4 text-center text-white font-semibold">Gagnés</th>
-                  <th className="px-6 py-4 text-center text-white font-semibold">Revenus</th>
-                  <th className="px-6 py-4 text-center text-white font-semibold">Actions</th>
+      {/* Coaches Table */}
+      <div className="bg-white/10 backdrop-blur-xl rounded-xl border border-white/20 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-white/5">
+              <tr>
+                <th className="px-6 py-4 text-left text-white font-semibold">Coach</th>
+                <th className="px-6 py-4 text-left text-white font-semibold">Email</th>
+                <th className="px-6 py-4 text-left text-white font-semibold">Spécialité</th>
+                <th className="px-6 py-4 text-center text-white font-semibold">Leads</th>
+                <th className="px-6 py-4 text-center text-white font-semibold">Gagnés</th>
+                <th className="px-6 py-4 text-center text-white font-semibold">Revenus</th>
+                <th className="px-6 py-4 text-center text-white font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {filteredCoaches.map((coach) => (
+                <tr key={coach.id} className="hover:bg-white/5 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                        {coach.name.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-white font-medium">{coach.name}</p>
+                        <p className="text-white/40 text-xs">
+                          Créé le {new Date(coach.created_at).toLocaleDateString('fr-FR')}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-white/80">{coach.email}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400">
+                      {coach.specialty}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-center text-white font-semibold">
+                    {coach.total_leads}
+                  </td>
+                  <td className="px-6 py-4 text-center text-green-400 font-semibold">
+                    {coach.leads_won}
+                  </td>
+                  <td className="px-6 py-4 text-center text-purple-400 font-semibold">
+                    {coach.total_revenue?.toFixed(0)}€
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => openEditModal(coach)}
+                        className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors"
+                        title="Modifier"
+                      >
+                        <Edit2 className="w-4 h-4 text-blue-400" />
+                      </button>
+                      <button
+                        onClick={() => openDeleteModal(coach)}
+                        className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {filteredCoaches.map((coach) => (
-                  <tr key={coach.id} className="hover:bg-white/5 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
-                          {coach.name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="text-white font-medium">{coach.name}</p>
-                          <p className="text-white/40 text-xs">
-                            Créé le {new Date(coach.created_at).toLocaleDateString('fr-FR')}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-white/80">{coach.email}</td>
-                    <td className="px-6 py-4">
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400">
-                        {coach.specialty}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center text-white font-semibold">
-                      {coach.total_leads}
-                    </td>
-                    <td className="px-6 py-4 text-center text-green-400 font-semibold">
-                      {coach.leads_won}
-                    </td>
-                    <td className="px-6 py-4 text-center text-purple-400 font-semibold">
-                      {coach.total_revenue?.toFixed(0)}€
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => openEditModal(coach)}
-                          className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors"
-                          title="Modifier"
-                        >
-                          <Edit2 className="w-4 h-4 text-blue-400" />
-                        </button>
-                        <button
-                          onClick={() => openDeleteModal(coach)}
-                          className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-400" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {filteredCoaches.length === 0 && (
-            <div className="text-center py-12">
-              <Users className="w-16 h-16 text-white/20 mx-auto mb-4" />
-              <p className="text-white/60">
-                {searchTerm ? 'Aucun coach trouvé' : 'Aucun coach enregistré'}
-              </p>
-            </div>
-          )}
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        {showCreateModal && (
-          <Modal
-            title="Créer un nouveau coach"
-            onClose={() => {
+        {filteredCoaches.length === 0 && (
+          <div className="text-center py-12">
+            <Users className="w-16 h-16 text-white/20 mx-auto mb-4" />
+            <p className="text-white/60">
+              {searchTerm ? 'Aucun coach trouvé' : 'Aucun coach enregistré'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {showCreateModal && (
+        <Modal
+          title="Créer un nouveau coach"
+          onClose={() => {
+            setShowCreateModal(false)
+            resetForm()
+          }}
+        >
+          <CoachForm
+            formData={formData}
+            setFormData={setFormData}
+            onSubmit={handleCreateCoach}
+            onCancel={() => {
               setShowCreateModal(false)
               resetForm()
             }}
-          >
-            <CoachForm
-              formData={formData}
-              setFormData={setFormData}
-              onSubmit={handleCreateCoach}
-              onCancel={() => {
-                setShowCreateModal(false)
-                resetForm()
-              }}
-              submitLabel="Créer le coach"
-              showPasswordField
-              loading={loading}
-            />
-          </Modal>
-        )}
+            submitLabel="Créer le coach"
+            showPasswordField
+            loading={loading}
+          />
+        </Modal>
+      )}
 
-        {showEditModal && selectedCoach && (
-          <Modal
-            title={`Modifier ${selectedCoach.name}`}
-            onClose={() => {
+      {showEditModal && selectedCoach && (
+        <Modal
+          title={`Modifier ${selectedCoach.name}`}
+          onClose={() => {
+            setShowEditModal(false)
+            resetForm()
+          }}
+        >
+          <CoachForm
+            formData={formData}
+            setFormData={setFormData}
+            onSubmit={handleUpdateCoach}
+            onCancel={() => {
               setShowEditModal(false)
               resetForm()
             }}
-          >
-            <CoachForm
-              formData={formData}
-              setFormData={setFormData}
-              onSubmit={handleUpdateCoach}
-              onCancel={() => {
-                setShowEditModal(false)
-                resetForm()
-              }}
-              submitLabel="Enregistrer"
-              showPasswordField={false}
-              loading={loading}
-            />
-          </Modal>
-        )}
+            submitLabel="Enregistrer"
+            showPasswordField={false}
+            loading={loading}
+          />
+        </Modal>
+      )}
 
-        {showDeleteModal && selectedCoach && (
-          <Modal
-            title="Confirmer la suppression"
-            onClose={() => {
-              setShowDeleteModal(false)
-              setSelectedCoach(null)
-            }}
-          >
-            <div className="space-y-4">
-              <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4">
-                <p className="text-red-400 text-sm">
-                  Cette action est irréversible. Tous les leads associés à ce coach seront également supprimés.
-                </p>
-              </div>
-              
-              <p className="text-white">
-                Êtes-vous sûr de vouloir supprimer le coach <strong className="text-blue-400">{selectedCoach.name}</strong> ?
+      {showDeleteModal && selectedCoach && (
+        <Modal
+          title="Confirmer la suppression"
+          onClose={() => {
+            setShowDeleteModal(false)
+            setSelectedCoach(null)
+          }}
+        >
+          <div className="space-y-4">
+            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4">
+              <p className="text-red-400 text-sm">
+                Cette action est irréversible. Tous les leads associés à ce coach seront également supprimés.
               </p>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => {
-                    setShowDeleteModal(false)
-                    setSelectedCoach(null)
-                  }}
-                  className="flex-1 px-4 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleDeleteCoach}
-                  disabled={loading}
-                  className="flex-1 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all disabled:opacity-50"
-                >
-                  {loading ? 'Suppression...' : 'Supprimer'}
-                </button>
-              </div>
             </div>
-          </Modal>
-        )}
-      </div>
-      )
+            
+            <p className="text-white">
+              Êtes-vous sûr de vouloir supprimer le coach <strong className="text-blue-400">{selectedCoach.name}</strong> ?
+            </p>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setSelectedCoach(null)
+                }}
+                className="flex-1 px-4 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDeleteCoach}
+                disabled={loading}
+                className="flex-1 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all disabled:opacity-50"
+              >
+                {loading ? 'Suppression...' : 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
 }
 
 function StatCard({ title, value, icon, color }: any) {
@@ -778,7 +724,7 @@ function CoachForm({ formData, setFormData, onSubmit, onCancel, submitLabel, sho
           disabled={loading}
           className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all disabled:opacity-50"
         >
-          {loading ? 'Création...' : submitLabel}
+          {loading ? 'Traitement...' : submitLabel}
         </button>
       </div>
     </form>
