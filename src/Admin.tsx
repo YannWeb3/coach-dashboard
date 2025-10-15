@@ -72,7 +72,7 @@ export default function Admin() {
       const { data: adminData, error } = await supabase
         .from('admin')
         .select('id')
-        .eq('id', user.id)
+        .eq('coach_id', user.id)
 
       console.log('Admin data:', adminData)
       console.log('Admin error:', error)
@@ -253,7 +253,7 @@ export default function Admin() {
           name: formData.name,
           specialty: formData.specialty
         })
-        .eq('id', selectedCoach.id)
+        .eq('coach_id', selectedCoach.id)
 
       if (error) throw error
 
@@ -282,7 +282,7 @@ export default function Admin() {
       const { error: coachError } = await supabase
         .from('coach_profiles')
         .delete()
-        .eq('id', selectedCoach.id)
+        .eq('coach_id', selectedCoach.id)
 
       if (coachError) {
         console.error('Erreur suppression coach:', coachError)

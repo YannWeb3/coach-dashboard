@@ -72,14 +72,14 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
     const { data: coachData } = await supabase
       .from('coach_profiles')
       .select('name, email, specialty')
-      .eq('id', userId)
+      .eq('coach_id', userId)
       .single()
 
     // Charger config existante si elle existe
     const { data: configData } = await supabase
       .from('config_coach')
       .select('*')
-      .eq('id', userId)
+      .eq('coach_id', userId)
       .single()
 
     if (coachData) {
@@ -104,7 +104,7 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
     const { data } = await supabase
       .from('config_coach')
       .select('video_etape_1, video_etape_2, video_etape_3, video_etape_4, video_etape_5')
-      .eq('id', userId)
+      .eq('coach_id', userId)
       .single()
 
     if (data) {
@@ -197,7 +197,7 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
           prerequis_manychat: true,
           updated_at: new Date().toISOString()
         })
-        .eq('id', userId)
+        .eq('coach_id', userId)
 
       if (error) throw error
 
@@ -220,7 +220,7 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
           statut: 'Configuration terminée',
           updated_at: new Date().toISOString()
         })
-        .eq('id', userId)
+        .eq('coach_id', userId)
 
       if (error) throw error
 

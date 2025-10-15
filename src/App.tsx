@@ -55,7 +55,7 @@ export default function App() {
       const { data: adminData, error } = await supabase
         .from('admin')
         .select('id')
-        .eq('id', userId);
+        .eq('coach_id', userId);
       
       console.log('🔍 App.tsx - Résultat admin:', adminData);
       

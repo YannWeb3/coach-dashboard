@@ -58,7 +58,7 @@ export default function Dashboard() {
       const { data: adminCheck, error: adminError } = await supabase
         .from('admin')
         .select('id')
-        .eq('id', user.id);
+        .eq('coach_id', user.id);
       
       console.log('Résultat vérif admin:', adminCheck);
       console.log('Erreur admin:', adminError);

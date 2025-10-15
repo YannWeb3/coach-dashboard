@@ -62,7 +62,7 @@ export default function Configuration() {
       const { data: configData, error } = await supabase
         .from('config_coach')
         .select('*')
-        .eq('id', profileData.id)
+        .eq('coach_id', profileData.id)
         .single();
 
       if (error) throw error;
@@ -98,7 +98,7 @@ export default function Configuration() {
           ...formData,
           updated_at: new Date().toISOString()
         })
-        .eq('id', profileData.id);
+        .eq('coach_id', profileData.id);
 
       if (error) throw error;
 
