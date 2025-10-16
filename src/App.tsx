@@ -8,7 +8,7 @@ import DashboardHome from './DashboardHome'
 import Dashboard from './Dashboard'
 import Admin from './Admin'
 import Configuration from './Configuration'
-import { Loader2, Mail } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 export default function App() {
   const [session, setSession] = useState<any>(null)
@@ -234,7 +234,7 @@ export default function App() {
   return (
     <Layout
       currentPage={currentPage}
-      onNavigate={setCurrentPage}
+      onNavigate={(page) => setCurrentPage(page as typeof currentPage)}  // ✅ Cast explicite
       onSignOut={handleSignOut}
       userEmail={userEmail}
       userName={userName}
