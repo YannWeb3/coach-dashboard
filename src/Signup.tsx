@@ -25,7 +25,7 @@ export default function Signup({ onBackToLogin }: { onBackToLogin: () => void })
     try {
       console.log('🚀 Création du compte Auth...')
       
-      // Créer l'utilisateur dans Supabase Auth avec métadonnées
+      // Créer l'utilisateur dans Supabase Auth avec métadonnées.
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
