@@ -288,7 +288,7 @@ export default function Pilotage() {
                 outerRadius={100}
                 label={(entry) => `${entry.source_name}: ${entry.percentage}%`}
               >
-                {topSources.map((entry, index) => (
+                {topSources.map((_entry, index) => (
                   <Cell key={`cell-${index}`} fill={pieColors[index % pieColors.length]} />
                 ))}
               </Pie>
