@@ -68,53 +68,80 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
   }, [userId])
 
   const loadCoachInfo = async () => {
-    // Charger depuis la table coach_profile
-    const { data: coachData } = await supabase
-      .from('coach_profiles')
-      .select('name, email, specialty')
-      .eq('coach_id', userId)
-      .single()
+    try {
+      // 1. Charger le profil coach depuis user_id
+      const { data: coachData, error: coachError } = await supabase
+        .from('coach_profiles')
+        .select('id, name, email, specialty')
+        .eq('user_id', userId)
+        .maybeSingle()
 
-    // Charger config existante si elle existe
-    const { data: configData } = await supabase
-      .from('config_coach')
-      .select('*')
-      .eq('coach_id', userId)
-      .single()
+      if (coachError) {
+        console.error('Erreur chargement profil:', coachError)
+        return
+      }
 
-    if (coachData) {
+      if (!coachData) {
+        console.warn('Pas de profil coach trouvé pour userId:', userId)
+        return
+      }
+
+      // 2. Mettre à jour les infos de base
       setFormData(prev => ({
         ...prev,
         nom: coachData.name || '',
         email: coachData.email || '',
         niche: coachData.specialty || 'fitness'
       }))
-    }
 
-    // Si config existe, charger les données
-    if (configData) {
-      setFormData(prev => ({
-        ...prev,
-        ...configData
-      }))
+      // 3. Charger la config existante (si elle existe)
+      const { data: configData } = await supabase
+        .from('config_coach')
+        .select('*')
+        .eq('coach_id', coachData.id)
+        .maybeSingle()
+
+      // 4. Si config existe, charger toutes les données
+      if (configData) {
+        setFormData(prev => ({
+          ...prev,
+          ...configData
+        }))
+      }
+    } catch (err) {
+      console.error('Exception loadCoachInfo:', err)
     }
   }
 
   const loadVideos = async () => {
-    const { data } = await supabase
-      .from('config_coach')
-      .select('video_etape_1, video_etape_2, video_etape_3, video_etape_4, video_etape_5')
-      .eq('coach_id', userId)
-      .single()
+    try {
+      // Récupérer l'ID du profil coach d'abord
+      const { data: profileData } = await supabase
+        .from('coach_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .single()
 
-    if (data) {
-      setVideos({
-        1: data.video_etape_1 || '',
-        2: data.video_etape_2 || '',
-        3: data.video_etape_3 || '',
-        4: data.video_etape_4 || '',
-        5: data.video_etape_5 || ''
-      })
+      if (!profileData) return
+
+      // Charger les vidéos depuis config_coach
+      const { data } = await supabase
+        .from('config_coach')
+        .select('video_etape_1, video_etape_2, video_etape_3, video_etape_4, video_etape_5')
+        .eq('coach_id', profileData.id)
+        .maybeSingle()
+
+      if (data) {
+        setVideos({
+          1: data.video_etape_1 || '',
+          2: data.video_etape_2 || '',
+          3: data.video_etape_3 || '',
+          4: data.video_etape_4 || '',
+          5: data.video_etape_5 || ''
+        })
+      }
+    } catch (err) {
+      console.error('Erreur chargement vidéos:', err)
     }
   }
 
@@ -164,14 +191,26 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
   const saveProgress = async () => {
     try {
       setLoading(true)
+      
+      // Récupérer coach_id depuis user_id
+      const { data: profileData } = await supabase
+        .from('coach_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .single()
+
+      if (!profileData) {
+        throw new Error('Profil coach non trouvé')
+      }
+
       const { error } = await supabase
         .from('config_coach')
         .upsert({
-          id: userId,
+          coach_id: profileData.id,
           ...formData,
           updated_at: new Date().toISOString()
         }, {
-          onConflict: 'id'
+          onConflict: 'coach_id'
         })
 
       if (error) throw error
@@ -187,7 +226,15 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
     try {
       setLoading(true)
       
-      // Incrémenter le compteur de tests
+      // Récupérer coach_id
+      const { data: profileData } = await supabase
+        .from('coach_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .single()
+
+      if (!profileData) throw new Error('Profil non trouvé')
+      
       const newTestCount = formData.tests_effectues + 1
       
       const { error } = await supabase
@@ -197,7 +244,7 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
           prerequis_manychat: true,
           updated_at: new Date().toISOString()
         })
-        .eq('coach_id', userId)
+        .eq('coach_id', profileData.id)
 
       if (error) throw error
 
@@ -214,13 +261,23 @@ export default function Onboarding({ userId, onComplete }: { userId: string; onC
   const completeOnboarding = async () => {
     try {
       setLoading(true)
+      
+      // Récupérer coach_id
+      const { data: profileData } = await supabase
+        .from('coach_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .single()
+
+      if (!profileData) throw new Error('Profil non trouvé')
+      
       const { error } = await supabase
         .from('config_coach')
         .update({
           statut: 'Configuration terminée',
           updated_at: new Date().toISOString()
         })
-        .eq('coach_id', userId)
+        .eq('coach_id', profileData.id)
 
       if (error) throw error
 
